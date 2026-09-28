@@ -16,20 +16,20 @@ st.set_page_config(
 @st.cache_data
 def generar_dataset_ejemplo(semilla: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(semilla)
-    latencia_base = rng.normal(loc=120, scale=18, size=94)
-    latencia_base = np.clip(latencia_base, 60, None)
-    atipicos = np.array([260.0, 295.0, 310.0, 340.0, 455.0, 12.0])
-    latencia = np.concatenate([latencia_base, atipicos])
-    rng.shuffle(latencia)
-    memoria = np.clip(rng.normal(loc=62, scale=9, size=100), 20, 100)
-    memoria[[7, 33, 71]] = [98.5, 99.2, 97.8]
-    servidores = rng.choice(["WEB-01", "WEB-02", "WEB-03", "WEB-04"], size=100)
+    temperatura_base = rng.normal(loc=58, scale=5, size=94)
+    temperatura_base = np.clip(temperatura_base, 35, None)
+    atipicos_temperatura = np.array([92.0, 95.0, 98.0, 101.0, 104.0, 21.0])
+    temperatura = np.concatenate([temperatura_base, atipicos_temperatura])
+    rng.shuffle(temperatura)
+    consumo = np.clip(rng.normal(loc=350, scale=40, size=100), 150, None)
+    consumo[[7, 33, 71]] = [720.0, 785.0, 812.0]
+    nodos = rng.choice(["NODO-01", "NODO-02", "NODO-03", "NODO-04"], size=100)
     return pd.DataFrame(
         {
             "registro": np.arange(1, 101),
-            "servidor": servidores,
-            "latencia_ms": np.round(latencia, 2),
-            "uso_ram_pct": np.round(memoria, 2),
+            "nodo": nodos,
+            "temperatura_cpu_c": np.round(temperatura, 1),
+            "consumo_energia_w": np.round(consumo, 1),
         }
     )
 
@@ -45,10 +45,14 @@ def leer_archivo(contenido: bytes, nombre: str) -> pd.DataFrame:
 
 
 def calcular_moda(serie: pd.Series):
-    modas = serie.mode()
-    if modas.empty:
+    if serie.empty:
         return np.nan, 0
-    return float(modas.iloc[0]), len(modas)
+    conteo = serie.value_counts()
+    max_freq = conteo.max()
+    if max_freq == 1 or (conteo == max_freq).all():
+        return np.nan, 0
+    modas = conteo[conteo == max_freq].index.tolist()
+    return float(sorted(modas)[0]), len(modas)
 
 
 def calcular_estadisticos(serie: pd.Series) -> dict:
@@ -236,8 +240,8 @@ def interpretar_asimetria(est: dict) -> str:
 
 st.title("📊 Medidas de Posición y Diagramas de Cajas")
 st.caption(
-    "Estadística aplicada a la Ingeniería de Sistemas — análisis de latencia, uso de memoria "
-    "y otras métricas de infraestructura."
+    "Estadística aplicada a la Ingeniería de Sistemas — análisis de temperatura de procesadores, "
+    "consumo energético y otras métricas de infraestructura."
 )
 
 with st.sidebar:
@@ -246,7 +250,7 @@ with st.sidebar:
     usar_ejemplo = st.checkbox(
         "Usar Dataset de Ejemplo de Ingeniería de Sistemas",
         value=archivo is None,
-        help="Registros de latencia de servidores web (ms) y uso de RAM (%), con 100 datos y outliers intencionales.",
+        help="Monitoreo de un centro de datos: temperatura de CPU (°C) y consumo de energía (W), con 100 registros y outliers intencionales.",
     )
 
 df = None
@@ -262,7 +266,7 @@ if archivo is not None:
 
 if df is None and usar_ejemplo:
     df = generar_dataset_ejemplo()
-    origen = "Dataset de ejemplo: Registros de latencia de servidores web"
+    origen = "Dataset de ejemplo: Monitoreo de temperatura y consumo en un centro de datos"
 
 if df is None:
     st.info("👈 Sube un archivo `.csv` o `.xlsx`, o activa el dataset de ejemplo en la barra lateral para comenzar.")
@@ -313,6 +317,8 @@ with tab_resumen:
     m5.metric("Desv. estándar muestral (s)", f"{est['desviacion']:.3f}")
     if est["cantidad_modas"] > 1:
         st.caption(f"Se detectaron {est['cantidad_modas']} modas (distribución multimodal); se muestra la menor.")
+    elif est["cantidad_modas"] == 0:
+        st.caption("No existe moda: ningún valor se repite más que los demás.")
 
     st.subheader("Medidas de posición")
     p1, p2, p3, p4 = st.columns(4)
@@ -357,7 +363,7 @@ with tab_resumen:
                 est["q3"],
                 est["maximo"],
                 est["media"],
-                est["moda"],
+                "N/A" if np.isnan(est["moda"]) else est["moda"],
                 est["varianza"],
                 est["desviacion"],
                 est["iqr"],
@@ -366,7 +372,7 @@ with tab_resumen:
             ],
         }
     )
-    resumen["Valor"] = resumen["Valor"].astype(float).round(4)
+    resumen["Valor"] = resumen["Valor"].apply(lambda v: f"{v:.4f}" if isinstance(v, (int, float)) else v)
     st.dataframe(resumen, use_container_width=True, hide_index=True)
 
 with tab_graficos:
@@ -432,6 +438,6 @@ with tab_atipicos:
     )
     if not serie_atipicos.empty:
         st.warning(
-            "En sistemas reales, estos atípicos pueden indicar picos de tráfico, fallos de hardware, "
-            "fugas de memoria o errores de medición. Conviene investigarlos antes de eliminarlos."
+            "En sistemas reales, estos atípicos pueden indicar fallas de refrigeración, sobrecargas de procesamiento, "
+            "fallos de hardware o errores de medición. Conviene investigarlos antes de eliminarlos."
         )
